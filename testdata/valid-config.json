@@ -1,0 +1,31 @@
+{
+  "port": 8000,
+  "host": "127.0.0.1",
+  "registryPath": "~/.sisyphus/tool-registry.json",
+  "logPath": "~/.sisyphus/mcp-gateway/logs/gateway.log",
+  "servers": [
+    {
+      "name": "github",
+      "command": "node",
+      "args": ["server.js"],
+      "env": {
+        "TOKEN": "${HOME}/.github-token",
+        "PATH": "/usr/bin"
+      },
+      "mode": "on-demand",
+      "idleTimeout": 300,
+      "disabled": false
+    },
+    {
+      "name": "playwright",
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"],
+      "env": {
+        "PATH": "/usr/bin"
+      },
+      "mode": "persistent",
+      "idleTimeout": 600,
+      "disabled": false
+    }
+  ]
+}

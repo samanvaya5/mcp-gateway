@@ -1,0 +1,43 @@
+{
+  "name": "mcp-gateway",
+  "version": "1.0.0",
+  "description": "Single-point proxy for Model Context Protocol servers — routes agent MCP calls to 10+ backend MCP servers with on-demand spawning, health tracking, and hot-reload config.",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "test": "bun test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samanvayayagsen/mcp-gateway"
+  },
+  "homepage": "https://github.com/samanvayayagsen/mcp-gateway#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "gateway",
+    "proxy",
+    "bun"
+  ],
+  "author": "Samanvaya Yagsen",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@modelcontextprotocol/client": "^2.0.0-alpha.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "chokidar": "^5.0.0",
+    "zod": "^4.3.6"
+  }
+}
