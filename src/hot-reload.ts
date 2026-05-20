@@ -8,6 +8,7 @@ export function startWatching(
   currentConfig: GatewayConfig,
   lifecycle: LifecycleManager,
   onConfigChanged: (newConfig: GatewayConfig) => void,
+  invalidateServer?: (name: string) => void,
 ): { stop: () => void } {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -29,9 +30,15 @@ export function startWatching(
 
       try {
         const newConfig = loadConfig(configPath);
-        await applyConfigDiff(currentConfig, newConfig, lifecycle);
+        const { added, updated } = await applyConfigDiff(currentConfig, newConfig, lifecycle);
         copyConfigFields(currentConfig, newConfig);
         onConfigChanged(currentConfig);
+        // Invalidate registry for added/updated servers so next tools/list refresh picks them up
+        if (invalidateServer) {
+          for (const name of [...added, ...updated]) {
+            invalidateServer(name);
+          }
+        }
       } catch (err) {
         console.error("[hot-reload] Failed to reload config:", err);
       }
@@ -54,20 +61,39 @@ async function applyConfigDiff(
   oldConfig: GatewayConfig,
   newConfig: GatewayConfig,
   lifecycle: LifecycleManager,
-): Promise<void> {
+): Promise<{ added: string[]; removed: string[]; updated: string[] }> {
   const oldByName = indexServersByName(oldConfig.servers);
   const newByName = indexServersByName(newConfig.servers);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const updated: string[] = [];
+
+  // Detect removed and added servers
+  for (const [name] of oldByName) {
+    if (!newByName.has(name)) {
+      removed.push(name);
+    }
+  }
+  for (const [name] of newByName) {
+    if (!oldByName.has(name)) {
+      added.push(name);
+    }
+  }
 
   await killRemovedServers(oldByName, newByName, lifecycle);
 
+  // Detect updated servers
   for (const [name, newServer] of newByName) {
     const oldServer = oldByName.get(name);
     if (!oldServer) continue;
 
     if (shouldKillServer(oldServer, newServer)) {
       await lifecycle.kill(name);
+      updated.push(name);
     }
   }
+
+  return { added, removed, updated };
 }
 
 function indexServersByName(

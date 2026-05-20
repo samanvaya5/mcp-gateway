@@ -38,3 +38,18 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 config-migration-map.json
 .sisyphus/
 
+# pi agent internal state
+.pi/
+
+# internal research and scratch files
+HANDOFF.md
+INDUSTRY_RESEARCH.md
+LIFECYCLE_COMPARISON.md
+PATTERNS_FROM_INDUSTRY.md
+EOF
+test-call.ts
+test-config.json
+test-exa.ts
+mock-mcp-server.js
+debug.log
+

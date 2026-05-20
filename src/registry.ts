@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { dirname } from "path";
-import type { ToolEntry, ServerConfig, GatewayConfig } from "./types.js";
+import type { ToolEntry, ServerConfig, GatewayConfig, ServerManifest } from "./types.js";
+import { search as bm25Search } from "./bm25.js";
 
 /**
  * Minimal interface for the LifecycleManager dependency.
@@ -19,6 +20,8 @@ export interface ILifecycleManager {
         }>;
       }>;
     };
+    serverInfo?: { name: string; version: string; description?: string };
+    instructions?: string;
   }>;
   killServer(name: string): Promise<void>;
 }
@@ -35,6 +38,8 @@ export class ToolRegistry {
   generatedAt: string = "";
   ttl: number = DEFAULT_TTL;
   serverVersions: Record<string, string> = {};
+  /** Server self-descriptions captured from MCP initialization handshake */
+  serverManifests: Record<string, ServerManifest> = {};
 
   // ── static helpers ──────────────────────────────────────────────
 
@@ -73,6 +78,7 @@ export class ToolRegistry {
       registry.generatedAt = data.generatedAt ?? "";
       registry.ttl = data.ttl ?? DEFAULT_TTL;
       registry.serverVersions = data.serverVersions ?? {};
+      registry.serverManifests = data.serverManifests ?? {};
     } catch {
       // File missing or corrupt → empty registry
     }
@@ -93,6 +99,7 @@ export class ToolRegistry {
       generatedAt: this.generatedAt,
       ttl: this.ttl,
       serverVersions: this.serverVersions,
+      serverManifests: this.serverManifests,
     };
     await writeFile(registryPath, JSON.stringify(data, null, 2));
   }
@@ -124,7 +131,8 @@ export class ToolRegistry {
       newVersions[server.name] = hash;
 
       try {
-        const { client } = await lifecycleManager.spawnServer(server);
+        const { client, serverInfo, instructions } =
+          await lifecycleManager.spawnServer(server);
         const result = await client.listTools();
 
         for (const tool of result.tools) {
@@ -137,6 +145,15 @@ export class ToolRegistry {
             versionHash: hash,
           });
         }
+
+        this.serverManifests[server.name] = {
+          name: server.name,
+          serverProvidedName: serverInfo?.name,
+          serverProvidedDescription: serverInfo?.description,
+          instructions,
+          toolCount: result.tools.length,
+          toolNames: result.tools.map((t) => t.name),
+        };
       } catch {
         // Spawn failed or listTools errored — skip this server
       } finally {
@@ -157,24 +174,21 @@ export class ToolRegistry {
   // ── queries ────────────────────────────────────────────────────
 
   /**
-   * Token-based text search (no embeddings, no FAISS).
+   * BM25 search with token normalization (no embeddings, no FAISS).
    *
-   * Splits `query` on whitespace into tokens, then returns every tool
-   * where ALL tokens appear case-insensitively in either the tool's
-   * namespaced `name` or its `description`.
+   * Features:
+   *   - BM25 probabilistic scoring (TF + IDF)
+   *   - Token normalization: camelCase, snake_case, kebab-case
+   *   - Server-scoped search support
+   *   - Zero dependencies, pure math
+   *
+   * @param query   - Search query string
+   * @param limit   - Maximum results to return (default: 20)
+   * @param server  - Optional server name to restrict search
    */
-  search(query: string): ToolEntry[] {
-    const tokens = query
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((t) => t.length > 0);
-
-    if (tokens.length === 0) return [];
-
-    return this.tools.filter((tool) => {
-      const haystack = `${tool.name} ${tool.description}`.toLowerCase();
-      return tokens.every((token) => haystack.includes(token));
-    });
+  search(query: string, limit: number = 20, server?: string): ToolEntry[] {
+    const results = bm25Search(query, this.tools, { server, limit });
+    return results.map((r) => r.tool);
   }
 
   /**
@@ -185,12 +199,28 @@ export class ToolRegistry {
   }
 
   /**
+   * Return the self-reported manifest for a server (name, description,
+   * instructions) captured during the last registry refresh.
+   */
+  getServerManifest(serverName: string): ServerManifest | undefined {
+    return this.serverManifests[serverName];
+  }
+
+  /**
+   * Return manifests for all servers.
+   */
+  getAllServerManifests(): ServerManifest[] {
+    return Object.values(this.serverManifests);
+  }
+
+  /**
    * Remove all tools from a specific server from the in-memory catalog
-   * (also drops its version hash so the next `isStale` returns true).
+   * (also drops its version hash and manifest so the next `isStale` returns true).
    */
   invalidate(serverName: string): void {
     this.tools = this.tools.filter((t) => t.serverName !== serverName);
     delete this.serverVersions[serverName];
+    delete this.serverManifests[serverName];
   }
 
   /**

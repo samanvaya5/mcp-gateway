@@ -203,6 +203,20 @@ describe("loadConfig", () => {
     expect(() => loadConfig(path, {})).toThrow();
   });
 
+  test("loadConfig > PORT and HOST env vars override config file", () => {
+    const path = writeConfig("override", {
+      port: 8000,
+      host: "127.0.0.1",
+      registryPath: "/tmp/registry.json",
+      logPath: "/tmp/gateway.log",
+      servers: [],
+    });
+
+    const config = loadConfig(path, { PORT: "9999", HOST: "0.0.0.0" });
+    expect(config.port).toBe(9999);
+    expect(config.host).toBe("0.0.0.0");
+  });
+
   test("negative idleTimeout is rejected", () => {
     const path = writeConfig("negative-timeout", {
       port: 8000,

@@ -8,7 +8,7 @@ import type {
 import type { GatewayConfig, ServerConfig } from "./types.js";
 import { SpawnLock } from "./spawn-lock.js";
 import type { LifecycleManager } from "./lifecycle.js";
-import type { ToolRegistry } from "./registry.js";
+import type { ToolRegistry, ILifecycleManager } from "./registry.js";
 import type { HealthTracker } from "./recovery.js";
 
 // ── Event bus for SSE ─────────────────────────────────────────────
@@ -36,7 +36,12 @@ function jsonResponse(
   status: number,
   body: unknown,
 ): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
+  res.writeHead(status, { 
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -241,6 +246,41 @@ async function handleListTools(
   jsonResponse(res, 200, { tools });
 }
 
+async function handleRefresh(
+  res: ServerResponse,
+  config: GatewayConfig,
+  lifecycle: LifecycleManager,
+  registry: ToolRegistry,
+  spawnLock: SpawnLock,
+): Promise<void> {
+  const adapter: ILifecycleManager = {
+    async spawnServer(serverConfig) {
+      return lifecycle.spawn(serverConfig.name, serverConfig, spawnLock);
+    },
+    async killServer(name) {
+      await lifecycle.kill(name);
+    },
+  };
+  try {
+    await registry.refresh(config, adapter);
+    await registry.save(config.registryPath);
+    gatewayEvents.emit("gateway_event", {
+      event: "registry_refreshed",
+      servers: config.servers.length,
+      tools: registry.tools.length,
+      timestamp: new Date().toISOString(),
+    });
+    jsonResponse(res, 200, {
+      status: "ok",
+      servers: config.servers.length,
+      tools: registry.tools.length,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    jsonResponse(res, 500, { error: message });
+  }
+}
+
 function handleSSE(
   req: IncomingMessage,
   res: ServerResponse,
@@ -295,6 +335,11 @@ async function handleApiRoute(
   // GET /api/events — SSE stream
   if (parts.length === 2 && parts[0] === "api" && parts[1] === "events") {
     return handleSSE(req, res);
+  }
+
+  // POST /api/refresh — refresh tool registry cache
+  if (parts.length === 2 && parts[0] === "api" && parts[1] === "refresh" && method === "POST") {
+    return handleRefresh(res, config, lifecycle, registry, spawnLock);
   }
 
   // GET /api/servers
@@ -369,6 +414,30 @@ export function registerApiRoutes(
       `http://${config.host}:${config.port}`,
     );
     const path = url.pathname;
+
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      });
+      res.end();
+      return;
+    }
+
+    // Authentication check
+    if (config.token && !config.noAuth && path !== "/api/health") {
+      // Allow health check without token? Actually, maybe best to keep it private too if exposed.
+      // But /api/health is used for load balancer usually. Let's require it for everything but health?
+      // Actually, if it's exposed, let's just require it for everything except health if we want.
+      // Let's require it for everything for now to be safe.
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${config.token}`) {
+        jsonResponse(res, 401, { error: "Unauthorized: Invalid or missing token" });
+        return;
+      }
+    }
 
     // API routes — handle here
     if (path.startsWith("/api/")) {

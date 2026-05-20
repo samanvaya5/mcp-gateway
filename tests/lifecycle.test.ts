@@ -28,6 +28,8 @@ function allocPid(): number {
 mock.module("@modelcontextprotocol/client", () => ({
   Client: class {
     async connect() {}
+    getServerVersion() { return undefined; }
+    getInstructions() { return undefined; }
   },
   StdioClientTransport: class {
     pid: number | null = allocPid();
@@ -87,6 +89,8 @@ describe("LifecycleManager", () => {
         async connect() {
           connected = true;
         }
+        getServerVersion() { return undefined; }
+        getInstructions() { return undefined; }
       },
       StdioClientTransport: class {
         pid: number | null = allocPid();

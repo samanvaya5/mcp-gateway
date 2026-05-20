@@ -119,7 +119,117 @@ To point an agent at the gateway, add this to the agent's MCP configuration:
 }
 ```
 
-All backend servers appear as namespaced tools. A tool called `list_issues` on the `github` server becomes `github__list_issues`. The agent calls it by that namespaced name. The gateway parses the double underscore, routes the call to the correct server, and returns the result.
+## Using the Gateway (3-Step Workflow)
+
+The gateway exposes **6 native tools**. The 3 most important ones follow a discover → understand → execute workflow:
+
+### Step 1: Discover Tools with `search_tools`
+
+Search for available backend tools by keyword:
+
+```json
+{
+  "name": "search_tools",
+  "arguments": {
+    "query": "github repository"
+  }
+}
+```
+
+Returns tools with namespaced names like `github__search_repositories`, `github__list_issues`.
+
+### Step 2: Understand Parameters with `describe_tool`
+
+Get full schema and examples for any tool:
+
+```json
+{
+  "name": "describe_tool",
+  "arguments": {
+    "tool": "github__search_repositories"
+  }
+}
+```
+
+Returns the description, input schema, and auto-generated usage examples.
+
+### Step 3: Execute with `execute_tool`
+
+Run the tool with a proper args object:
+
+```json
+{
+  "name": "execute_tool",
+  "arguments": {
+    "tool": "github__search_repositories",
+    "args": {
+      "query": "machine learning stars:>1000 language:python",
+      "perPage": 10
+    }
+  }
+}
+```
+
+**Important**: `args` must be an object, not a JSON string.
+
+### Complete Example
+
+```
+search_tools({"query": "web search"})
+→ Returns: [{"name": "exa2__web_search_exa", ...}]
+
+describe_tool({"tool": "exa2__web_search_exa"})
+→ Returns: {description, inputSchema, examples: [{"query": "...", "numResults": 10}]}
+
+execute_tool({
+  "tool": "exa2__web_search_exa",
+  "args": {"query": "latest AI news", "numResults": 5}
+})
+→ Returns: search results!
+```
+
+### All Gateway-Native Tools
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `search_tools` | Find tools by keyword | **Step 1** — Always start here |
+| `describe_tool` | Show schema + examples | **Step 2** — Before executing |
+| `execute_tool` | Run any backend tool | **Step 3** — Final execution |
+| `list_servers` | List configured servers | Management |
+| `server_status` | Check server health | Debugging |
+| `manage_server` | Enable/disable/restart | Administration |
+
+## Exposing to Public Internet (for Grok, etc.)
+
+To connect Grok or other cloud-based agents to your local MCP Gateway, you can use the built-in exposure script. This script automatically handles:
+1. **Security**: Generates a unique API token and enforces it via Bearer authentication.
+2. **Tunneling**: Starts an `ngrok` tunnel to create a public HTTPS URL.
+3. **Execution**: Starts the gateway and the tunnel simultaneously.
+
+### Usage
+
+```bash
+bun run expose
+```
+
+The script will output a **Public URL** and a **Security Token**. 
+
+### Connecting to Grok
+1. Go to Grok Settings -> MCP Servers.
+2. Click **Add Server**.
+3. Set Type to **SSE**.
+4. Paste the **Public URL** (ending in `/sse`) into the URL field.
+5. In the Headers field, add: `{"Authorization": "Bearer YOUR_TOKEN"}`.
+
+### Open Mode (No Authentication)
+
+If you are in a safe environment and want to skip the token entirely, you can use:
+
+```bash
+bun run expose:open
+```
+
+This will still use a random port and `ngrok`, but the gateway will **not** require any authentication headers. **Use this with caution.**
 
 ## Adding Servers
 

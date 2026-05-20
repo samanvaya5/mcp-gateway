@@ -25,6 +25,8 @@ const GatewayConfigSchema = z.object({
   ),
   registryPath: z.string().min(1),
   logPath: z.string().min(1),
+  token: z.string().optional(),
+  noAuth: z.boolean().optional().default(false),
 });
 
 export const DEFAULT_CONFIG = {
@@ -78,6 +80,18 @@ export function loadConfig(
   // Apply defaults for undefined fields only (0 and "" are intentional values)
   if (raw.port == null) raw.port = DEFAULT_CONFIG.port;
   if (raw.host == null) raw.host = DEFAULT_CONFIG.host;
+
+  // Override with environment variables if present
+  if (resolvedEnv.PORT) {
+    const p = parseInt(resolvedEnv.PORT, 10);
+    if (!isNaN(p)) raw.port = p;
+  }
+  if (resolvedEnv.HOST) {
+    raw.host = resolvedEnv.HOST;
+  }
+  if (resolvedEnv.NO_AUTH === "true" || resolvedEnv.NO_AUTH === "1") {
+    raw.noAuth = true;
+  }
 
   return GatewayConfigSchema.parse(raw) as GatewayConfig;
 }

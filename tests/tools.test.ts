@@ -2,7 +2,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig, ServerConfig, ToolEntry } from "../src/types.js";
 import { ToolRegistry } from "../src/registry.js";
 import { LifecycleManager } from "../src/lifecycle.js";
-import { HealthTracker } from "../src/recovery.js";
+import { HealthTracker, type ServerHealth } from "../src/recovery.js";
 import type { SpawnLock } from "../src/spawn-lock.js";
 import {
   handleSearchTools,
@@ -70,10 +70,14 @@ function makeMockLifecycle(
 function makeMockHealthTracker(
   overrides?: Partial<{
     isHealthy: (name: string) => boolean;
+    getHealth: (name: string) => ServerHealth | undefined;
+    getRetryDelay: (name: string) => number;
   }>,
 ) {
   return {
     isHealthy: mock(() => true),
+    getHealth: mock(() => undefined as ServerHealth | undefined),
+    getRetryDelay: mock(() => 0),
     ...overrides,
   } as unknown as HealthTracker;
 }
@@ -96,9 +100,10 @@ describe("handleSearchTools", () => {
     ];
     const healthTracker = makeMockHealthTracker();
 
-    const result = handleSearchTools("weather", registry, healthTracker);
+    const result = handleSearchTools("weather", registry, healthTracker, undefined, undefined);
 
     expect(result.results).toHaveLength(1);
+    expect(result.total).toBe(1);
     expect(result.results[0]!.name).toBe("weather__forecast");
     expect(result.results[0]!.server).toBe("weather");
     expect(result.results[0]!.description).toBe("Get weather forecast");
@@ -117,11 +122,12 @@ describe("handleSearchTools", () => {
       isHealthy: mock((name: string) => name !== "math"),
     });
 
-    const result = handleSearchTools("math", registry, healthTracker);
+    const result = handleSearchTools("math", registry, healthTracker, undefined, undefined);
 
     // Only db__query should appear because math server is marked unhealthy
     // (but it doesn't match the query either), and math__add/multiply are filtered out
     expect(result.results).toHaveLength(0);
+    expect(result.total).toBe(0);
   });
 
   // Test 3: returns empty results for no-match query
@@ -132,9 +138,10 @@ describe("handleSearchTools", () => {
     ];
     const healthTracker = makeMockHealthTracker();
 
-    const result = handleSearchTools("nonexistent", registry, healthTracker);
+    const result = handleSearchTools("nonexistent", registry, healthTracker, undefined, undefined);
 
     expect(result.results).toEqual([]);
+    expect(result.total).toBe(0);
   });
 
   // Bonus: empty query returns empty
@@ -145,9 +152,10 @@ describe("handleSearchTools", () => {
     ];
     const healthTracker = makeMockHealthTracker();
 
-    const result = handleSearchTools("", registry, healthTracker);
+    const result = handleSearchTools("", registry, healthTracker, undefined, undefined);
 
     expect(result.results).toEqual([]);
+    expect(result.total).toBe(0);
   });
 });
 
@@ -164,18 +172,22 @@ describe("handleListServers", () => {
       listRunning: mock(() => []),
     });
     const healthTracker = makeMockHealthTracker();
+    const registry = new ToolRegistry();
 
-    const result = handleListServers(config, lifecycle, healthTracker);
+    const result = handleListServers(config, lifecycle, healthTracker, registry);
 
-    expect(result.servers).toHaveLength(2);
-    expect(result.servers[0]!.name).toBe("web");
-    expect(result.servers[0]!.mode).toBe("persistent");
-    expect(result.servers[0]!.status).toBe("stopped");
-    expect(result.servers[0]!.idleTimeout).toBe(0);
-    expect(result.servers[0]!.disabled).toBe(false);
-    expect(result.servers[1]!.name).toBe("worker");
-    expect(result.servers[1]!.mode).toBe("on-demand");
-    expect(result.servers[1]!.idleTimeout).toBe(600);
+    // First entry is always the gateway itself
+    expect(result.servers[0]!.name).toBe("mcp-gateway");
+    expect(result.servers[0]!.toolCount).toBeGreaterThan(0);
+
+    expect(result.servers[1]!.name).toBe("web");
+    expect(result.servers[1]!.mode).toBe("persistent");
+    expect(result.servers[1]!.status).toBe("stopped");
+    expect(result.servers[1]!.idleTimeout).toBe(0);
+    expect(result.servers[1]!.disabled).toBe(false);
+    expect(result.servers[2]!.name).toBe("worker");
+    expect(result.servers[2]!.mode).toBe("on-demand");
+    expect(result.servers[2]!.idleTimeout).toBe(600);
   });
 
   // Test 5: shows running/stopped/unhealthy/disabled statuses correctly
@@ -200,10 +212,12 @@ describe("handleListServers", () => {
         return healthy.get(name) ?? true;
       }),
     });
+    const registry = new ToolRegistry();
 
-    const result = handleListServers(config, lifecycle, healthTracker);
+    const result = handleListServers(config, lifecycle, healthTracker, registry);
 
-    expect(result.servers).toHaveLength(4);
+    expect(result.servers).toHaveLength(5);
+    expect(result.servers[0]!.name).toBe("mcp-gateway");
 
     const running = result.servers.find((s) => s.name === "running-srv")!;
     expect(running.status).toBe("running");

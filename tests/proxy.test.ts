@@ -83,7 +83,7 @@ describe("proxy helpers", () => {
 // ── tools/list handler ────────────────────────────────────────────
 
 describe("handleToolsList", () => {
-  test("returns merged tools with correct namespacing", async () => {
+  test("returns only gateway-native tools, not backend tools", async () => {
     const registry = new ToolRegistry();
     registry.tools = [
       { name: "echo__greet", description: "Say hello", inputSchema: {}, serverName: "echo", originalName: "greet", versionHash: "abc" },
@@ -94,16 +94,19 @@ describe("handleToolsList", () => {
 
     const result = await handleToolsList(registry, config);
 
-    expect(result.tools).toHaveLength(6);
-    expect(result.tools[4]).toEqual({
-      name: "echo__greet",
-      description: "Say hello",
-      inputSchema: {},
-    });
-    expect(result.tools[5]!.name).toBe("calc__add");
+    // 12 gateway-native tools are now exposed
+    expect(result.tools).toHaveLength(12);
+    const toolNames = result.tools.map((t) => t.name);
+    expect(toolNames).toContain("search_tools");
+    expect(toolNames).toContain("list_servers");
+    expect(toolNames).toContain("browse_server");
+    expect(toolNames).toContain("server_status");
+    expect(toolNames).toContain("manage_server");
+    expect(toolNames).not.toContain("echo__greet");
+    expect(toolNames).not.toContain("calc__add");
   });
 
-  test("triggers refresh when registry is stale", async () => {
+  test("triggers refresh when registry is stale but still only returns gateway tools", async () => {
     const registry = new ToolRegistry();
     registry.tools = [];
     registry.serverVersions = {}; // empty versions → stale
@@ -122,8 +125,11 @@ describe("handleToolsList", () => {
     const result = await handleToolsList(registry, config);
 
     expect(refreshCalled).toBe(true);
-    expect(result.tools).toHaveLength(5);
-    expect(result.tools[4]!.name).toBe("echo__greet");
+    // Still only 12 gateway-native tools exposed
+    expect(result.tools).toHaveLength(12);
+    const toolNames = result.tools.map((t) => t.name);
+    expect(toolNames).toContain("browse_server");
+    expect(toolNames).not.toContain("echo__greet");
   });
 });
 

@@ -9,7 +9,9 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "expose": "bun run scripts/expose.ts",
+    "expose:open": "bun run scripts/expose-open.ts"
   },
   "repository": {
     "type": "git",

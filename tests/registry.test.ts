@@ -159,7 +159,7 @@ describe("ToolRegistry.search", () => {
     await registry.refresh(config, lm);
 
     const results = registry.search("fetchData");
-    expect(results).toHaveLength(1);
+    expect(results).toHaveLength(2);
     expect(results[0]!.originalName).toBe("fetchData");
   });
 });

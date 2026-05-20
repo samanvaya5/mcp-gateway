@@ -4,6 +4,7 @@ import { LifecycleManager } from "./lifecycle.js";
 import { ToolRegistry, type ILifecycleManager } from "./registry.js";
 import { HealthTracker } from "./recovery.js";
 import type { SpawnLock } from "./spawn-lock.js";
+import { DynamicToolRegistry } from "./dynamic-tools.js";
 import { getGatewayToolDefs, callGatewayTool } from "./tools.js";
 
 interface ToolListResult {
@@ -64,18 +65,14 @@ export async function handleToolsList(
     await registry.refresh(config, adapter);
   }
 
-  const tools = [
-    ...getGatewayToolDefs().map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
-    ...registry.tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
-  ];
+  // Only expose gateway-native tools to prevent context bloat.
+  // Agents use search_tools to discover backend tools on-demand,
+  // then call them via the server__tool namespace pattern.
+  const tools = getGatewayToolDefs().map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+  }));
 
   return { tools };
 }
@@ -87,12 +84,14 @@ export async function handleToolsCall(
   healthTracker: HealthTracker,
   spawnLock: SpawnLock,
   registry: ToolRegistry,
+  dynamicRegistry?: DynamicToolRegistry,
+  configPath?: string,
 ): Promise<ToolCallResult> {
   const { name: toolName, arguments: toolArgs = {} } = params;
 
   // Check gateway-native tools first (non-namespaced names)
   const gatewayResult = await callGatewayTool(
-    toolName, toolArgs, config, registry, lifecycle, healthTracker, spawnLock,
+    toolName, toolArgs, config, registry, lifecycle, healthTracker, spawnLock, dynamicRegistry, configPath,
   );
   if (gatewayResult !== null) return gatewayResult;
 
@@ -144,6 +143,8 @@ export function registerProxyHandlers(
   registry: ToolRegistry,
   healthTracker: HealthTracker,
   spawnLock: SpawnLock,
+  dynamicRegistry?: DynamicToolRegistry,
+  configPath?: string,
 ): void {
   const server = mcpServer.server;
 
@@ -159,6 +160,8 @@ export function registerProxyHandlers(
       healthTracker,
       spawnLock,
       registry,
+      dynamicRegistry,
+      configPath,
     );
   });
 }

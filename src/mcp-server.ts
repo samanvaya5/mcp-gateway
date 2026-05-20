@@ -1,5 +1,6 @@
 import {
   McpServer,
+  StdioServerTransport,
   WebStandardStreamableHTTPServerTransport,
 } from "@modelcontextprotocol/server";
 import { createServer } from "node:http";
@@ -49,7 +50,12 @@ function nodeReqToWebRequest(req: IncomingMessage, body: Uint8Array | null, host
 }
 
 async function sendWebResponse(res: ServerResponse, webResponse: Response): Promise<void> {
-  const responseHeaders: Record<string, string> = {};
+  const responseHeaders: Record<string, string> = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+  
   webResponse.headers.forEach((value, key) => {
     responseHeaders[key] = value;
   });
@@ -76,7 +82,11 @@ export async function createGatewayServer(
   config: GatewayConfig,
 ): Promise<{ server: McpServer; httpServer: HttpServer }> {
   const mcpServer = new McpServer(
-    { name: "mcp-gateway", version: "1.0.0" },
+    {
+      name: "mcp-gateway",
+      version: "1.0.0",
+      description: "MCP Gateway — orchestrates backend MCP servers for web search, GitHub, Firebase, browser automation, SSH, YouTube analysis, and more. Browse servers with list_servers(), explore tools with browse_server(), search tools with search_tools().",
+    },
     { capabilities: { tools: {} } },
   );
 
@@ -95,17 +105,43 @@ export async function createGatewayServer(
     }
 
     const path = (req.url || "/").split("?")[0]!;
+    const method = req.method || "GET";
 
-    if (path !== "/mcp" && path !== "/sse") {
-      res.writeHead(404);
-      res.end("Not Found");
+    console.log(`[HTTP] ${method} ${path}`);
+
+    // 1. CORS Preflight (Important for Grok)
+    if (method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
+      });
+      res.end();
       return;
     }
 
+    // 2. Authentication check
+    if (config.token && !config.noAuth) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${config.token}`) {
+        console.warn(`[AUTH] 401 Unauthorized: ${method} ${path}`);
+        res.writeHead(401, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ error: "Unauthorized: Invalid or missing token" }));
+        return;
+      }
+    }
+
+    // 3. Delegate ALL other requests to the MCP Transport
+    // The SDK's WebStandardStreamableHTTPServerTransport handles its own internal routing.
     try {
       const body = await readIncomingBody(req);
       const webRequest = nodeReqToWebRequest(req, body, config.host, config.port);
       const webResponse = await transport.handleRequest(webRequest);
+      
+      if (webResponse.status === 404) {
+        console.warn(`[MCP] 404 Not Found from Transport: ${method} ${path}`);
+      }
+      
       await sendWebResponse(res, webResponse);
     } catch (err) {
       if (!res.headersSent) {
@@ -139,4 +175,24 @@ export async function createGatewayServer(
   httpServer.listen(config.port, config.host);
 
   return { server: mcpServer, httpServer };
+}
+
+/**
+ * Create a stdio-based MCP server for clients that don't support SSE.
+ * Pi spawns this as a child process — communicates via stdin/stdout.
+ */
+export async function createStdioGatewayServer(): Promise<McpServer> {
+  const mcpServer = new McpServer(
+    {
+      name: "mcp-gateway",
+      version: "1.0.0",
+      description: "MCP Gateway — orchestrates backend MCP servers for web search, GitHub, Firebase, browser automation, SSH, YouTube analysis, and more. Browse servers with list_servers(), explore tools with browse_server(), search tools with search_tools().",
+    },
+    { capabilities: { tools: {} } },
+  );
+
+  const transport = new StdioServerTransport();
+  await mcpServer.connect(transport);
+
+  return mcpServer;
 }

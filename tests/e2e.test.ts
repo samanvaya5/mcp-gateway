@@ -86,6 +86,8 @@ function allocPid(): number {
 mock.module("@modelcontextprotocol/client", () => ({
   Client: class {
     async connect() {}
+    getServerVersion() { return undefined; }
+    getInstructions() { return undefined; }
   },
   StdioClientTransport: class {
     pid: number | null = allocPid();
@@ -223,9 +225,19 @@ describe("e2e: MCP Gateway full lifecycle", () => {
 
       const result = await handleToolsList(registry, config, lifecycle, spawnLock);
 
-      expect(result.tools).toHaveLength(6);
-      expect(result.tools[4]!.name).toBe("echo__greet");
-      expect(result.tools[5]!.name).toBe("calc__add");
+      // Only gateway-native tools are exposed to prevent context bloat
+      expect(result.tools).toHaveLength(12);
+      const toolNames = result.tools.map((t) => t.name);
+      expect(toolNames).toContain("search_tools");
+      expect(toolNames).toContain("describe_tool");
+      expect(toolNames).toContain("execute_tool");
+      expect(toolNames).toContain("list_servers");
+      expect(toolNames).toContain("browse_server");
+      expect(toolNames).toContain("server_status");
+      expect(toolNames).toContain("manage_server");
+      // Backend tools should NOT be directly exposed
+      expect(toolNames).not.toContain("echo__greet");
+      expect(toolNames).not.toContain("calc__add");
       expect(spawnSpy).not.toHaveBeenCalled();
       expect(lifecycle.listRunning()).toHaveLength(0);
     });

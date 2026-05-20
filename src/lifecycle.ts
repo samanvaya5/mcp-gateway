@@ -10,12 +10,16 @@ interface ServerEntry {
   startedAt: number;
   lastActivity: number;
   mode: "persistent" | "on-demand";
+  serverInfo?: { name: string; version: string; description?: string };
+  instructions?: string;
 }
 
 export interface SpawnHandle {
   pid: number | null;
   client: Client;
   transport: StdioClientTransport;
+  serverInfo?: { name: string; version: string; description?: string };
+  instructions?: string;
 }
 
 const IDLE_CHECK_INTERVAL_MS = 30_000;
@@ -41,6 +45,8 @@ export class LifecycleManager {
           pid: existing.transport.pid,
           client: existing.client,
           transport: existing.transport,
+          serverInfo: existing.serverInfo,
+          instructions: existing.instructions,
         };
       }
 
@@ -57,18 +63,23 @@ export class LifecycleManager {
 
       await client.connect(transport);
 
+      const serverInfo = client.getServerVersion();
+      const instructions = client.getInstructions();
+
       const entry: ServerEntry = {
         client,
         transport,
         startedAt: Date.now(),
         lastActivity: Date.now(),
         mode: config.mode,
+        serverInfo,
+        instructions,
       };
 
       this.servers.set(name, entry);
       this.ensureIdleCheckInterval();
 
-      return { pid: transport.pid, client, transport };
+      return { pid: transport.pid, client, transport, serverInfo, instructions };
     });
   }
 
