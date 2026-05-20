@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Bun ${{ matrix.bun }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        bun: ["1.2", "1.1", "1.0"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun test
+
+      - name: Check TypeScript
+        run: bun tsc --noEmit
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+      - run: bun install --frozen-lockfile
+      - run: bun x tsc --noEmit
+
+  publish:
+    name: Publish to npm
+    needs: [test, lint]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: Publish to npm
+        run: |
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
